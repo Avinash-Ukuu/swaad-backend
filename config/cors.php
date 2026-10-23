@@ -3,7 +3,8 @@
 return [
     'paths'                     => ['api/*', 'sanctum/csrf-cookie'],
     'allowed_methods'           => ['*'],
-    'allowed_origins'           => [env('FRONTEND_URL', 'https://www.swaadtasteofpunjab.com')],
+    'allowed_origins'           => ['https://www.swaadtasteofpunjab.com',
+                                        'https://swaadtasteofpunjab.com',],
     'allowed_origins_patterns'  => [],
     'allowed_headers'           => ['*'],
     'exposed_headers'           => [],

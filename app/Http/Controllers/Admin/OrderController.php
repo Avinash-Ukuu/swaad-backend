@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\OrderStatusEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -37,12 +38,16 @@ class OrderController extends Controller
         if ($d['order_status'] !== $order->order_status && !in_array($d['order_status'], $allowed[$order->order_status] ?? [], true)) throw ValidationException::withMessages(['order_status' => 'Invalid status transition.']);
         if (in_array($d['order_status'], ['confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered'], true) && $order->payment_status !== 'paid') throw ValidationException::withMessages(['order_status' => 'Only paid orders can enter fulfillment.']);
         if ($d['order_status'] === 'shipped' && !($d['shipping_id'] ?? $order->shipping_id)) throw ValidationException::withMessages(['shipping_id' => 'Add a shipping/tracking ID before marking shipped.']);
+        $statusChanged = $d['order_status'] !== $order->order_status;
         DB::transaction(function () use ($order, $d) {
             $changes = $d;
             if ($d['order_status'] === 'shipped' && !$order->shipped_at) $changes['shipped_at'] = now();
             if ($d['order_status'] === 'delivered' && !$order->delivered_at) $changes['delivered_at'] = now();
             $order->update($changes);
         });
+        if ($statusChanged && in_array($d['order_status'], ['shipped', 'delivered'], true)) {
+            app(OrderStatusEmailService::class)->sendIfNeeded($order, $d['order_status']);
+        }
         return redirect()->route('admin.orders.show', $order)->with('status', 'Order updated.');
     }
 }
