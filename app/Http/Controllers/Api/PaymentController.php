@@ -42,6 +42,137 @@ class PaymentController extends Controller
         }
         return response()->json(['success' => true, 'data' => ['order_number' => $order->order_number, 'payment_status' => $order->payment_status, 'order_status' => $order->order_status]]);
     }
+
+    public function callback(Request $request)
+    {
+        $d = $request->validate([
+            'razorpay_payment_id' => 'required|string',
+            'razorpay_payment_link_id' => 'required|string',
+            'razorpay_payment_link_reference_id' => 'required|string',
+            'razorpay_payment_link_status' => 'required|string',
+            'razorpay_signature' => 'required|string',
+        ]);
+
+        $secret = config('services.razorpay.key_secret');
+        $message = $d['razorpay_payment_link_id'] . '|' . $d['razorpay_payment_link_reference_id'] . '|' . $d['razorpay_payment_link_status'] . '|' . $d['razorpay_payment_id'];
+        $expected = hash_hmac('sha256', $message, (string) $secret);
+        if (!$secret || !hash_equals($expected, $d['razorpay_signature'])) {
+            return response()->json(['message' => 'Invalid Payment Link callback signature.'], 422);
+        }
+
+        $payment = Payment::where('razorpay_payment_link_id', $d['razorpay_payment_link_id'])->with('order')->firstOrFail();
+        if ($payment->order->order_number !== $d['razorpay_payment_link_reference_id']) {
+            return response()->json(['message' => 'Payment Link reference does not match the order.'], 422);
+        }
+
+        $verified = $this->fetchAndApplyPaymentLink($payment, $d['razorpay_payment_id']);
+        $frontend = rtrim((string) config('services.razorpay.frontend_url'), '/');
+        if ($frontend !== '') {
+            return redirect()->away($frontend . '/order-confirmation?order_number=' . urlencode($payment->order->order_number) . '&payment_check=' . ($verified ? 'complete' : 'pending'));
+        }
+        return response()->json(['success' => true, 'verified' => $verified, 'order_number' => $payment->order->order_number]);
+    }
+
+    /**
+     * Confirm the Payment Link state directly with Razorpay before updating
+     * local payment/order records. The signed browser redirect alone is not
+     * treated as proof that funds were captured.
+     */
+    private function fetchAndApplyPaymentLink(Payment $payment, string $paymentId): bool
+    {
+        $key = config('services.razorpay.key_id');
+        $secret = config('services.razorpay.key_secret');
+
+        if (!$key || !$secret || !$payment->razorpay_payment_link_id) {
+            return false;
+        }
+
+        try {
+            $linkResponse = Http::withBasicAuth($key, $secret)
+                ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(15)
+                ->get('https://api.razorpay.com/v1/payment_links/' . rawurlencode($payment->razorpay_payment_link_id));
+
+            if (!$linkResponse->successful()) {
+                return false;
+            }
+
+            $link = $linkResponse->json();
+            $order = $payment->order;
+
+            if (
+                !$order ||
+                ($link['id'] ?? null) !== $payment->razorpay_payment_link_id ||
+                ($link['reference_id'] ?? null) !== $order->order_number ||
+                ($link['status'] ?? null) !== 'paid' ||
+                (int) ($link['amount'] ?? 0) !== (int) round((float) $order->total_amount * 100) ||
+                ($link['currency'] ?? null) !== 'INR'
+            ) {
+                return false;
+            }
+
+            // Confirm the exact payment returned by the callback against the
+            // authenticated Razorpay Payments API.
+            $paymentResponse = Http::withBasicAuth($key, $secret)
+                ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(15)
+                ->get('https://api.razorpay.com/v1/payments/' . rawurlencode($paymentId));
+
+            if (!$paymentResponse->successful()) {
+                return false;
+            }
+
+            $remotePayment = $paymentResponse->json();
+
+            if (
+                ($remotePayment['id'] ?? null) !== $paymentId ||
+                !in_array(($remotePayment['status'] ?? null), ['captured'], true) ||
+                (int) ($remotePayment['amount'] ?? 0) !== (int) round((float) $order->total_amount * 100) ||
+                ($remotePayment['currency'] ?? null) !== 'INR'
+            ) {
+                return false;
+            }
+
+            DB::transaction(function () use ($payment, $paymentId, $order) {
+                $localPayment = Payment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+                $localOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+                // Never downgrade a payment/order that has already been paid.
+                $localPayment->update([
+                    'razorpay_payment_id' => $paymentId,
+                    'status' => 'paid',
+                    'signature_verified_at' => now(),
+                    'paid_at' => $localPayment->paid_at ?? now(),
+                    'failure_reason' => null,
+                ]);
+
+                if ($localOrder->payment_status !== 'paid') {
+                    $localOrder->update([
+                        'payment_status' => 'paid',
+                        'order_status' => $localOrder->order_status === 'pending_payment'
+                            ? 'confirmed'
+                            : $localOrder->order_status,
+                        'paid_at' => $localOrder->paid_at ?? now(),
+                        'confirmed_at' => $localOrder->confirmed_at ?? now(),
+                    ]);
+                }
+            });
+
+            $order->refresh();
+
+            if ($order->payment_status === 'paid') {
+                app(OrderStatusEmailService::class)->sendIfNeeded($order, 'confirmed');
+            }
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+            return false;
+        }
+    }
+
     public function webhook(Request $request)
     {
         $secret = config('services.razorpay.webhook_secret');
