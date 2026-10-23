@@ -187,7 +187,6 @@ CREATE TABLE `orders` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `order_number` varchar(40) NOT NULL,
   `idempotency_key` varchar(100) NOT NULL,
-  `user_id` bigint(20) unsigned DEFAULT NULL,
   `customer_name` varchar(255) DEFAULT NULL,
   `customer_email` varchar(255) DEFAULT NULL,
   `checkout_token_hash` varchar(64) NOT NULL,
@@ -221,18 +220,16 @@ CREATE TABLE `orders` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `orders_order_number_unique` (`order_number`),
   UNIQUE KEY `orders_idempotency_key_unique` (`idempotency_key`),
-  KEY `orders_user_id_foreign` (`user_id`),
   KEY `orders_created_at_payment_status_order_status_index` (`created_at`,`payment_status`,`order_status`),
   KEY `orders_payment_status_index` (`payment_status`),
   KEY `orders_order_status_index` (`order_status`),
-  KEY `orders_shipping_id_index` (`shipping_id`),
-  CONSTRAINT `orders_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  KEY `orders_shipping_id_index` (`shipping_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*Data for the table `orders` */
 
-insert  into `orders`(`id`,`order_number`,`idempotency_key`,`user_id`,`customer_name`,`customer_email`,`checkout_token_hash`,`recipient_name`,`recipient_phone`,`delivery_address_line_1`,`delivery_address_line_2`,`landmark`,`city`,`state`,`postal_code`,`country`,`subtotal`,`shipping_fee`,`discount_amount`,`total_amount`,`currency`,`payment_status`,`order_status`,`shipping_provider`,`shipping_id`,`tracking_url`,`customer_notes`,`internal_notes`,`paid_at`,`confirmed_at`,`shipped_at`,`delivered_at`,`created_at`,`updated_at`) values 
-(1,'SWD-20261022-HTXKXE','cow-ghee-500g',NULL,'Rahul Sharma','rahul@example.com','69615a54d3a28f068b48b8a3f982ea327f1bf6543e35bc1a2979fd86d3383939','Rahul Sharma','9876543210','House 123, Model Town','Near Main Market','Near Main Market','Jalandhar','Punjab','144003','IN',1650.00,0.00,0.00,1650.00,'INR','pending','pending_payment',NULL,NULL,NULL,'Please call before delivery',NULL,NULL,NULL,NULL,NULL,'2026-10-22 10:26:48','2026-10-22 10:26:48');
+insert  into `orders`(`id`,`order_number`,`idempotency_key`,`customer_name`,`customer_email`,`checkout_token_hash`,`recipient_name`,`recipient_phone`,`delivery_address_line_1`,`delivery_address_line_2`,`landmark`,`city`,`state`,`postal_code`,`country`,`subtotal`,`shipping_fee`,`discount_amount`,`total_amount`,`currency`,`payment_status`,`order_status`,`shipping_provider`,`shipping_id`,`tracking_url`,`customer_notes`,`internal_notes`,`paid_at`,`confirmed_at`,`shipped_at`,`delivered_at`,`created_at`,`updated_at`) values 
+(1,'SWD-20261022-HTXKXE','cow-ghee-500g','Rahul Sharma','rahul@example.com','69615a54d3a28f068b48b8a3f982ea327f1bf6543e35bc1a2979fd86d3383939','Rahul Sharma','9876543210','House 123, Model Town','Near Main Market','Near Main Market','Jalandhar','Punjab','144003','IN',1650.00,0.00,0.00,1650.00,'INR','pending','pending_payment',NULL,NULL,NULL,'Please call before delivery',NULL,NULL,NULL,NULL,NULL,'2026-10-22 10:26:48','2026-10-22 10:26:48');
 
 /*Table structure for table `password_reset_tokens` */
 

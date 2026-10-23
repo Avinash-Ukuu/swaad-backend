@@ -44,32 +44,144 @@ class CheckoutController extends Controller
             if (Order::where('idempotency_key', $data['idempotency_key'])->exists()) return response()->json(['message' => 'Checkout request already processed. Retry using the same idempotency key and X-Checkout-Token.'], 409);
             throw $e;
         }
+        return $this->createOrReturnPaymentLink($order, $plainToken, 201);
+    }
+
+    private function createOrReturnPaymentLink(Order $order, string $token, int $createdStatus = 200)
+    {
         $key = config('services.razorpay.key_id');
         $secret = config('services.razorpay.key_secret');
+
         if (!$key || !$secret) {
-            $order->update(['payment_status' => 'failed']);
             return response()->json(['message' => 'Payment gateway is not configured.'], 503);
         }
+
+        // Lock this order while checking/creating its link. Never retry a timed-out
+        // non-idempotent Razorpay request automatically: the remote link may exist.
         try {
-            $r = Http::withBasicAuth($key, $secret)->timeout(15)->post('https://api.razorpay.com/v1/orders', ['amount' => $totalCents, 'currency' => 'INR', 'receipt' => $order->order_number, 'notes' => ['local_order_number' => $order->order_number]]);
-            if (!$r->successful()) throw new \RuntimeException('Razorpay order creation failed.');
-            $rz = $r->json();
-            $order->payments()->create(['provider' => 'razorpay', 'razorpay_order_id' => $rz['id'], 'amount' => $order->total_amount, 'currency' => 'INR', 'status' => 'created']);
+            $result = DB::transaction(function () use ($order, $token, $key, $secret, $createdStatus) {
+                $lockedOrder = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+                $payment = $lockedOrder->payments()->whereNotNull('razorpay_payment_link_id')->latest()->first();
+                $unknownAttempt = $lockedOrder->payments()->where('status', 'creation_unknown')->latest()->first();
+                if ($unknownAttempt && !$payment) {
+                    return ['response' => response()->json(['message' => 'Payment link creation needs reconciliation before retrying. Please contact support with order number '.$lockedOrder->order_number.'.'], 503), 'status' => 503];
+                }
+
+                if ($payment && $payment->payment_link_url && in_array($payment->status, ['created', 'pending'], true)) {
+                    return ['response' => $this->paymentLinkResponse($lockedOrder, $payment, $token), 'status' => 200];
+                }
+                if ($payment && $payment->status === 'creation_unknown') {
+                    return ['response' => response()->json(['message' => 'Payment link creation needs reconciliation before retrying. Please contact support with order number '.$lockedOrder->order_number.'.'], 503), 'status' => 503];
+                }
+                if ($lockedOrder->payment_status === 'paid') {
+                    return ['response' => response()->json(['message' => 'This order has already been paid.'], 409), 'status' => 409];
+                }
+
+                $customer = [
+                    'name' => $lockedOrder->customer_name,
+                    'contact' => '+91'.$lockedOrder->recipient_phone,
+                ];
+                if ($lockedOrder->customer_email) $customer['email'] = $lockedOrder->customer_email;
+
+                // A row is persisted before the remote call, so an interrupted request
+                // is visible and cannot silently generate another link on retry.
+                $payment = $lockedOrder->payments()->create([
+                    'provider' => 'razorpay',
+                    'amount' => $lockedOrder->total_amount,
+                    'currency' => $lockedOrder->currency,
+                    'status' => 'creating',
+                ]);
+
+                try {
+                    $response = Http::withBasicAuth($key, $secret)
+                        ->acceptJson()
+                        ->asJson()
+                        ->connectTimeout(5)
+                        ->timeout(15)
+                        ->post('https://api.razorpay.com/v1/payment_links', [
+                            'amount' => (int) round((float) $lockedOrder->total_amount * 100),
+                            'currency' => $lockedOrder->currency,
+                            'reference_id' => $lockedOrder->order_number,
+                            'description' => 'SWAAD order '.$lockedOrder->order_number,
+                            'customer' => $customer,
+                            'notify' => ['sms' => false, 'email' => false],
+                            'reminder_enable' => false,
+                            'callback_url' => route('payments.callback'),
+                            'callback_method' => 'get',
+                            'notes' => ['local_order_number' => $lockedOrder->order_number],
+                        ]);
+                } catch (Throwable $e) {
+                    $payment->update(['status' => 'creation_unknown']);
+                    report($e);
+                    return ['response' => response()->json(['message' => 'Payment link creation could not be confirmed. Do not retry with a new checkout. Contact support with order number '.$lockedOrder->order_number.'.'], 502), 'status' => 502];
+                }
+
+                if (!$response->successful()) {
+                    // An explicit gateway rejection is safe to retry; no raw response is returned.
+                    $payment->update(['status' => 'failed', 'failure_reason' => 'Razorpay rejected Payment Link creation.']);
+                    return ['response' => response()->json(['message' => 'Unable to create payment link. Please retry checkout or contact support with order number '.$lockedOrder->order_number.'.'], 502), 'status' => 502];
+                }
+
+                $gateway = $response->json();
+                if (empty($gateway['id']) || empty($gateway['short_url'])) {
+                    $payment->update(['status' => 'creation_unknown']);
+                    return ['response' => response()->json(['message' => 'Payment link creation could not be confirmed. Contact support with order number '.$lockedOrder->order_number.'.'], 502), 'status' => 502];
+                }
+
+                $payment->update([
+                    'razorpay_payment_link_id' => $gateway['id'],
+                    'payment_link_url' => $gateway['short_url'],
+                    'status' => 'created',
+                ]);
+
+                return ['response' => $this->paymentLinkResponse($lockedOrder, $payment, $token), 'status' => $createdStatus];
+            });
+
+            return $result['response']->setStatusCode($result['status']);
         } catch (Throwable $e) {
             report($e);
-            $order->update(['payment_status' => 'failed']);
-            return response()->json(['message' => 'Unable to initialize payment. Please contact support with order number ' . $order->order_number . '.'], 502);
+            return response()->json(['message' => 'Unable to initialize payment. Please contact support with order number '.$order->order_number.'.'], 502);
         }
-
-
-        
-        return response()->json(['success' => true, 'data' => ['order_number' => $order->order_number, 'checkout_token' => $plainToken, 'razorpay' => ['key_id' => $key, 'order_id' => $rz['id'], 'amount' => $totalCents, 'currency' => 'INR'], 'amounts' => ['subtotal' => $order->subtotal, 'shipping_fee' => 0, 'discount_amount' => $order->discount_amount, 'total_amount' => $order->total_amount]]], 201);
     }
+
+    private function paymentLinkResponse(Order $order, Payment $payment, string $token)
+    {
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_number' => $order->order_number,
+                'checkout_token' => $token,
+                'payment_link' => $payment->payment_link_url,
+                'payment_status' => $order->payment_status,
+                'order_status' => $order->order_status,
+                'amounts' => [
+                    'subtotal' => $order->subtotal,
+                    'shipping_fee' => $order->shipping_fee,
+                    'discount_amount' => $order->discount_amount,
+                    'total_amount' => $order->total_amount,
+                ],
+                'currency' => $order->currency,
+            ],
+        ]);
+    }
+
     private function checkoutResponse(Order $order, ?string $token)
     {
-        if (!$token || !hash_equals($order->checkout_token_hash, hash('sha256', $token))) return response()->json(['message' => 'Idempotency key has already been used.'], 409);
+        if (!$token || !hash_equals($order->checkout_token_hash, hash('sha256', $token))) {
+            return response()->json(['message' => 'Idempotency key has already been used.'], 409);
+        }
+
         $payment = $order->payments()->latest()->first();
-        if (!$payment) return response()->json(['message' => 'Payment initialization requires support.'], 409);
-        return response()->json(['success' => true, 'data' => ['order_number' => $order->order_number, 'checkout_token' => $token, 'razorpay' => ['key_id' => config('services.razorpay.key_id'), 'order_id' => $payment->razorpay_order_id, 'amount' => (int)round((float)$order->total_amount * 100), 'currency' => $order->currency], 'amounts' => ['subtotal' => $order->subtotal, 'shipping_fee' =>0, 'discount_amount' => $order->discount_amount, 'total_amount' => $order->total_amount]]]);
+        if ($payment && $payment->payment_link_url && in_array($payment->status, ['created', 'pending'], true)) {
+            return $this->paymentLinkResponse($order, $payment, $token);
+        }
+        if ($order->payment_status === 'paid') {
+            return response()->json(['message' => 'This order has already been paid.'], 409);
+        }
+        if ($payment && $payment->status === 'creation_unknown') {
+            return response()->json(['message' => 'Payment link creation needs reconciliation. Contact support with order number '.$order->order_number.'.'], 503);
+        }
+
+        return $this->createOrReturnPaymentLink($order, $token);
     }
 }
