@@ -14,7 +14,7 @@ class CheckoutController extends Controller
 {
     public function store(Request $request)
     {
-        $data = $request->validate(['idempotency_key' => 'required|string|max:100', 'customer.name' => 'required|string|max:150', 'customer.email' => 'nullable|email|max:255', 'customer.phone' => 'required|string|regex:/^[6-9][0-9]{9}$/', 'address.recipient_name' => 'required|string|max:150', 'address.phone' => 'required|string|regex:/^[6-9][0-9]{9}$/', 'address.address_line_1' => 'required|string|max:255', 'address.address_line_2' => 'nullable|string|max:255', 'address.landmark' => 'nullable|string|max:255', 'address.city' => 'required|string|max:100', 'address.state' => 'required|string|max:100', 'address.postal_code' => 'required|string|regex:/^[1-9][0-9]{5}$/', 'address.country' => 'sometimes|in:IN', 'customer_notes' => 'nullable|string|max:1000', 'items' => 'required|array|min:1|max:50', 'items.*.sku' => 'required|string|max:100', 'items.*.quantity' => 'required|integer|min:1|max:100']);
+        $data = $request->validate(['idempotency_key' => 'required|string|max:100', 'customer.name' => 'required|string|max:150', 'customer.email' => 'nullable|email|max:255', 'customer.phone' => 'required|string|regex:/^[6-9][0-9]{9}$/', 'address.recipient_name' => 'required|string|max:150', 'address.phone' => 'required|string|regex:/^[6-9][0-9]{9}$/', 'address.address_line_1' => 'required|string|max:255', 'address.address_line_2' => 'nullable|string|max:255', 'address.landmark' => 'nullable|string|max:255', 'address.city' => 'required|string|max:100', 'address.state' => 'required|string|max:100', 'address.postal_code' => 'required|string|regex:/^[1-9][0-9]{5}$/', 'address.country' => 'sometimes|in:IN', 'customer_notes' => 'nullable|string|max:1000', 'items' => 'required|array|min:1|max:50', 'items.*.sku' => 'required|string|max:100', 'items.*.quantity' => 'required|integer|min:1|max:100', 'coupon_code' => 'nullable|string|max:50|regex:/^[A-Za-z0-9_-]+$/']);
         if ($existing = Order::where('idempotency_key', $data['idempotency_key'])->with('payments')->first()) return $this->checkoutResponse($existing, $request->header('X-Checkout-Token'));
         $catalog = config('swaad_catalog');
         $subtotalCents = 0;
@@ -26,17 +26,41 @@ class CheckoutController extends Controller
             $subtotalCents += $price * $item['quantity'];
             $lines[] = ['sku' => $item['sku'], 'product' => $p, 'quantity' => $item['quantity'], 'unit_cents' => $price];
         }
-        // $shippingCents = ($subtotalCents >= (int)round((float)config('swaad.free_shipping_threshold', 999) * 100)) ? 0 : (int)round((float)config('swaad.shipping_fee', 60) * 100);
+        // Keep the existing shipping behavior unchanged. Coupon discounts are calculated
+        // exclusively from trusted catalogue prices and the server-side subtotal.
         $shippingCents = 0;
-        $totalCents = $subtotalCents + $shippingCents;
+        $couponCode = null;
+        $discountCents = 0;
+        if (!empty($data['coupon_code'])) {
+            $couponCode = strtoupper(trim($data['coupon_code']));
+            $coupon = (config('coupons.codes', []))[$couponCode] ?? null;
+            if (!$coupon) throw ValidationException::withMessages(['coupon_code' => ['This coupon code is invalid.']]);
+            if (empty($coupon['active'])) throw ValidationException::withMessages(['coupon_code' => ['This coupon is currently inactive.']]);
+            $minimumCents = (int) round(((float) ($coupon['min_order_amount'] ?? 0)) * 100);
+            if ($subtotalCents < $minimumCents) throw ValidationException::withMessages(['coupon_code' => ['Your order does not meet the minimum amount for this coupon.']]);
+            $type = $coupon['type'] ?? '';
+            $value = (float) ($coupon['value'] ?? 0);
+            if ($value <= 0 || !in_array($type, ['fixed', 'percentage'], true) || ($type === 'percentage' && $value > 100)) {
+                throw ValidationException::withMessages(['coupon_code' => ['This coupon is not configured correctly.']]);
+            }
+            $discountCents = $type === 'percentage'
+                ? (int) round($subtotalCents * $value / 100)
+                : (int) round($value * 100);
+            if (isset($coupon['max_discount']) && $coupon['max_discount'] !== null) {
+                $discountCents = min($discountCents, (int) round(((float) $coupon['max_discount']) * 100));
+            }
+            // Razorpay's existing checkout requires at least ₹1 payable.
+            $discountCents = min($discountCents, max(0, $subtotalCents - 100));
+        }
+        $totalCents = $subtotalCents + $shippingCents - $discountCents;
         if ($totalCents < 100) throw ValidationException::withMessages(['items' => ['Order total must be at least ₹1.']]);
         $plainToken = Str::random(64);
         $order = null;
         try {
-            $order = DB::transaction(function () use ($data, $lines, $subtotalCents, $shippingCents, $totalCents, $plainToken) {
+            $order = DB::transaction(function () use ($data, $lines, $subtotalCents, $shippingCents, $discountCents, $couponCode, $totalCents, $plainToken) {
                 // Guest checkout: do not create a customer account or require authentication.
                 $a = $data['address'];
-                $order = Order::create(['order_number' => 'SWD-' . now()->format('Ymd') . '-' . Str::upper(Str::random(6)), 'idempotency_key' => $data['idempotency_key'], 'user_id' => null, 'customer_name' => $data['customer']['name'], 'customer_email' => $data['customer']['email'] ?? null, 'checkout_token_hash' => hash('sha256', $plainToken), 'recipient_name' => $a['recipient_name'], 'recipient_phone' => $a['phone'], 'delivery_address_line_1' => $a['address_line_1'], 'delivery_address_line_2' => $a['address_line_2'] ?? null, 'landmark' => $a['landmark'] ?? null, 'city' => $a['city'], 'state' => $a['state'], 'postal_code' => $a['postal_code'], 'country' => $a['country'] ?? 'IN', 'subtotal' => number_format($subtotalCents / 100, 2, '.', ''), 'shipping_fee' => 0, 'discount_amount' => '0.00', 'total_amount' => number_format($totalCents / 100, 2, '.', ''), 'currency' => 'INR', 'payment_status' => 'pending', 'order_status' => 'pending_payment', 'customer_notes' => $data['customer_notes'] ?? null]);
+                $order = Order::create(['order_number' => 'SWD-' . now()->format('Ymd') . '-' . Str::upper(Str::random(6)), 'idempotency_key' => $data['idempotency_key'], 'user_id' => null, 'customer_name' => $data['customer']['name'], 'customer_email' => $data['customer']['email'] ?? null, 'checkout_token_hash' => hash('sha256', $plainToken), 'recipient_name' => $a['recipient_name'], 'recipient_phone' => $a['phone'], 'delivery_address_line_1' => $a['address_line_1'], 'delivery_address_line_2' => $a['address_line_2'] ?? null, 'landmark' => $a['landmark'] ?? null, 'city' => $a['city'], 'state' => $a['state'], 'postal_code' => $a['postal_code'], 'country' => $a['country'] ?? 'IN', 'subtotal' => number_format($subtotalCents / 100, 2, '.', ''), 'shipping_fee' => number_format($shippingCents / 100, 2, '.', ''), 'coupon_code' => $couponCode, 'discount_amount' => number_format($discountCents / 100, 2, '.', ''), 'total_amount' => number_format($totalCents / 100, 2, '.', ''), 'currency' => 'INR', 'payment_status' => 'pending', 'order_status' => 'pending_payment', 'customer_notes' => $data['customer_notes'] ?? null]);
                 foreach ($lines as $line) $order->items()->create(['product_id' => $line['sku'], 'product_variant_id' => $line['sku'], 'product_name' => $line['product']['name'], 'variant_name' => $line['product']['variant'] ?? null, 'quantity' => $line['quantity'], 'unit_price' => number_format($line['unit_cents'] / 100, 2, '.', ''), 'line_total' => number_format($line['unit_cents'] * $line['quantity'] / 100, 2, '.', '')]);
                 return $order;
             });

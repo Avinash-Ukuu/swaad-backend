@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Services\OrderStatusEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Validation\ValidationException;
 
 class OrderController extends Controller
@@ -31,6 +32,15 @@ class OrderController extends Controller
         $order->load(['items', 'payments', 'user']);
         return view('admin.orders.show', compact('order'));
     }
+    public function downloadInvoice(Order $order)
+    {
+        $order->load(['items', 'payments', 'user']);
+        $payment = $order->payments->sortByDesc('created_at')->first();
+        $pdf = Pdf::loadView('admin.orders.invoice', compact('order', 'payment'))->setPaper('a4');
+
+        return $pdf->download('invoice-'.$order->order_number.'.pdf');
+    }
+
     public function update(Request $r, Order $order)
     {
         $d = $r->validate(['shipping_provider' => 'nullable|string|max:100', 'shipping_id' => 'nullable|string|max:150', 'tracking_url' => 'nullable|url|max:2000', 'order_status' => 'required|in:confirmed,processing,packed,shipped,out_for_delivery,delivered,cancelled,returned', 'internal_notes' => 'nullable|string|max:5000']);

@@ -1,1 +1,81 @@
-@extends('admin.layout') @section('title',$order->order_number) @section('heading','Order '.$order->order_number) @section('content')<div class="row"><div class="col-lg-7"><div class="card"><div class="card-header">Customer and delivery</div><div class="card-body"><b>{{ $order->recipient_name }}</b><br>{{ $order->recipient_phone }}<br>{{ $order->delivery_address_line_1 }}<br>{{ $order->delivery_address_line_2 }}<br>{{ $order->landmark }}<br>{{ $order->city }}, {{ $order->state }} {{ $order->postal_code }}, {{ $order->country }}<hr>Customer notes: {{ $order->customer_notes ?? '—' }}</div></div><div class="card"><div class="card-header">Items</div><div class="card-body table-responsive"><table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr></thead><tbody>@foreach($order->items as $i)<tr><td>{{ $i->product_name }} {{ $i->variant_name }}</td><td>{{ $i->quantity }}</td><td>₹{{ $i->unit_price }}</td><td>₹{{ $i->line_total }}</td></tr>@endforeach</tbody></table><div class="text-right">Subtotal: ₹{{ $order->subtotal }}<br>Shipping: ₹{{ $order->shipping_fee }}<br>Discount: ₹{{ $order->discount_amount }}<h4>Total: ₹{{ $order->total_amount }}</h4></div></div></div><div class="card"><div class="card-header">Payments</div><div class="card-body">Payment status: <b>{{ $order->payment_status }}</b><br>@foreach($order->payments as $p)Razorpay order: {{ $p->razorpay_order_id ?? '—' }}<br>Payment ID: {{ $p->razorpay_payment_id ?? '—' }}<br>Attempt status: {{ $p->status }}<hr>@endforeach</div></div></div><div class="col-lg-5"><div class="card"><div class="card-header">Fulfillment / shipping</div><div class="card-body"><form method="post" action="{{ route('admin.orders.update',$order) }}">@csrf @method('PATCH')<div class="form-group"><label>Shipping provider</label><input class="form-control" name="shipping_provider" value="{{ old('shipping_provider',$order->shipping_provider) }}"></div><div class="form-group"><label>Shipping / tracking ID</label><input class="form-control" name="shipping_id" value="{{ old('shipping_id',$order->shipping_id) }}"></div><div class="form-group"><label>Tracking URL</label><input class="form-control" type="url" name="tracking_url" value="{{ old('tracking_url',$order->tracking_url) }}"></div><div class="form-group"><label>Order status</label><select class="form-control" name="order_status">@foreach(['pending_payment','confirmed','processing','packed','shipped','out_for_delivery','delivered','cancelled','returned'] as $s)<option value="{{ $s }}" @selected(old('order_status',$order->order_status)===$s)>{{ str_replace('_',' ',$s) }}</option>@endforeach</select></div><div class="form-group"><label>Internal notes</label><textarea class="form-control" name="internal_notes" rows="4">{{ old('internal_notes',$order->internal_notes) }}</textarea></div><button class="btn btn-primary">Save changes</button></form></div></div></div></div>@endsection
+@extends('admin.layout') @section('title', $order->order_number) @section('heading', 'Order ' . $order->order_number)
+@section('content')<div class="mb-3">
+        <a class="btn btn-outline-primary" href="{{ route('admin.orders.invoice', $order) }}"><i class="fas fa-file-pdf"></i>
+            Download Invoice PDF</a>
+    </div>
+    <div class="row">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header">Customer and delivery</div>
+                <div class="card-body">
+                    <b>{{ $order->recipient_name }}</b><br>{{ $order->recipient_phone }}<br>{{ $order->delivery_address_line_1 }}<br>{{ $order->delivery_address_line_2 }}<br>{{ $order->landmark }}<br>{{ $order->city }},
+                    {{ $order->state }} {{ $order->postal_code }}, {{ $order->country }}
+                    <hr>Customer notes: {{ $order->customer_notes ?? '—' }}
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Items</div>
+                <div class="card-body table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Qty</th>
+                                <th>Unit price</th>
+                                <th>Line total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($order->items as $i)
+                                <tr>
+                                    <td>{{ $i->product_name }} {{ $i->variant_name }}</td>
+                                    <td>{{ $i->quantity }}</td>
+                                    <td>₹{{ $i->unit_price }}</td>
+                                    <td>₹{{ $i->line_total }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                    <div class="text-right">Subtotal: ₹{{ $order->subtotal }}<br>Shipping:
+                        ₹{{ $order->shipping_fee }}<br>Discount: ₹{{ $order->discount_amount }}<h4>Total:
+                            ₹{{ $order->total_amount }}</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">Payments</div>
+                <div class="card-body">Payment status: <b>{{ $order->payment_status }}</b><br>
+                    @foreach ($order->payments as $p)
+                        Razorpay order: {{ $p->razorpay_order_id ?? '—' }}
+                        <br>Payment ID: {{ $p->razorpay_payment_id ?? '—' }}<br>Attempt status: {{ $p->status }}
+                        <hr>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Fulfillment / shipping</div>
+                <div class="card-body">
+                    <form method="post" action="{{ route('admin.orders.update', $order) }}">@csrf @method('PATCH')<div
+                            class="form-group"><label>Shipping provider</label><input class="form-control"
+                                name="shipping_provider" value="{{ old('shipping_provider', $order->shipping_provider) }}">
+                        </div>
+                        <div class="form-group"><label>Shipping / tracking ID</label><input class="form-control"
+                                name="shipping_id" value="{{ old('shipping_id', $order->shipping_id) }}"></div>
+                        <div class="form-group"><label>Tracking URL</label><input class="form-control" type="url"
+                                name="tracking_url" value="{{ old('tracking_url', $order->tracking_url) }}"></div>
+                        <div class="form-group"><label>Order status</label><select class="form-control" name="order_status">
+                                @foreach (['pending_payment', 'confirmed', 'processing', 'packed', 'shipped', 'out_for_delivery', 'delivered', 'cancelled', 'returned'] as $s)
+                                    <option value="{{ $s }}" @selected(old('order_status', $order->order_status) === $s)>
+                                        {{ str_replace('_', ' ', $s) }}</option>
+                                @endforeach
+                            </select></div>
+                        <div class="form-group"><label>Internal notes</label>
+                            <textarea class="form-control" name="internal_notes" rows="4">{{ old('internal_notes', $order->internal_notes) }}</textarea>
+                        </div><button class="btn btn-primary">Save changes</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+</div>@endsection
