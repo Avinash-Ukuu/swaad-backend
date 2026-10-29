@@ -56,8 +56,8 @@ CREATE TABLE `cache` (
 /*Data for the table `cache` */
 
 insert  into `cache`(`key`,`value`,`expiration`) values 
-('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba','i:1;',1792665560),
-('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba:timer','i:1792665560;',1792665560);
+('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba','i:1;',1793245677),
+('laravel_cache_5c785c036466adea360111aa28563bfd556b5fba:timer','i:1793245677;',1793245677);
 
 /*Table structure for table `cache_locks` */
 
@@ -137,7 +137,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(255) NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*Data for the table `migrations` */
 
@@ -150,7 +150,9 @@ insert  into `migrations`(`id`,`migration`,`batch`) values
 (6,'2026_10_22_000003_create_orders_table',1),
 (7,'2026_10_22_000004_create_order_items_table',1),
 (8,'2026_10_22_000005_create_payments_table',1),
-(9,'2026_10_22_054136_create_personal_access_tokens_table',2);
+(9,'2026_10_22_054136_create_personal_access_tokens_table',1),
+(10,'2026_10_23_000001_add_payment_link_fields_and_webhook_events',1),
+(11,'2026_10_23_000001_add_order_status_email_timestamps',2);
 
 /*Table structure for table `order_items` */
 
@@ -171,13 +173,16 @@ CREATE TABLE `order_items` (
   PRIMARY KEY (`id`),
   KEY `order_items_order_id_foreign` (`order_id`),
   CONSTRAINT `order_items_order_id_foreign` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*Data for the table `order_items` */
 
 insert  into `order_items`(`id`,`order_id`,`product_id`,`product_variant_id`,`product_name`,`variant_name`,`quantity`,`unit_price`,`line_total`,`created_at`,`updated_at`) values 
-(1,1,'cow-ghee-500g','cow-ghee-500g','Pure Desi Cow Ghee','500g',1,1100.00,1100.00,'2026-10-22 10:26:48','2026-10-22 10:26:48'),
-(2,1,'multiflora-honey-500g','multiflora-honey-500g','Multi Flora Honey','500g',1,550.00,550.00,'2026-10-22 10:26:48','2026-10-22 10:26:48');
+(5,5,'cow-ghee-500g','cow-ghee-500g','Pure Desi Cow Ghee','500g',1,1100.00,1100.00,'2026-10-23 05:22:27','2026-10-23 05:22:27'),
+(6,5,'ajwain-honey-250g','ajwain-honey-250g','Ajwain Honey','250g',1,350.00,350.00,'2026-10-23 05:22:27','2026-10-23 05:22:27'),
+(7,6,'cow-ghee-500g','cow-ghee-500g','Pure Desi Cow Ghee','500g',1,1100.00,1100.00,'2026-10-23 06:34:20','2026-10-23 06:34:20'),
+(8,6,'ajwain-honey-250g','ajwain-honey-250g','Ajwain Honey','250g',1,350.00,350.00,'2026-10-23 06:34:20','2026-10-23 06:34:20'),
+(9,7,'ajwain-honey-250g','ajwain-honey-250g','Ajwain Honey','250g',2,350.00,700.00,'2026-10-29 03:46:57','2026-10-29 03:46:57');
 
 /*Table structure for table `orders` */
 
@@ -187,6 +192,7 @@ CREATE TABLE `orders` (
   `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `order_number` varchar(40) NOT NULL,
   `idempotency_key` varchar(100) NOT NULL,
+  `user_id` bigint(20) unsigned DEFAULT NULL,
   `customer_name` varchar(255) DEFAULT NULL,
   `customer_email` varchar(255) DEFAULT NULL,
   `checkout_token_hash` varchar(64) NOT NULL,
@@ -217,19 +223,27 @@ CREATE TABLE `orders` (
   `delivered_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `confirmed_email_sent_at` timestamp NULL DEFAULT NULL,
+  `shipped_email_sent_at` timestamp NULL DEFAULT NULL,
+  `delivered_email_sent_at` timestamp NULL DEFAULT NULL,
+  `coupon_code` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `orders_order_number_unique` (`order_number`),
   UNIQUE KEY `orders_idempotency_key_unique` (`idempotency_key`),
+  KEY `orders_user_id_foreign` (`user_id`),
   KEY `orders_created_at_payment_status_order_status_index` (`created_at`,`payment_status`,`order_status`),
   KEY `orders_payment_status_index` (`payment_status`),
   KEY `orders_order_status_index` (`order_status`),
-  KEY `orders_shipping_id_index` (`shipping_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  KEY `orders_shipping_id_index` (`shipping_id`),
+  CONSTRAINT `orders_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*Data for the table `orders` */
 
-insert  into `orders`(`id`,`order_number`,`idempotency_key`,`customer_name`,`customer_email`,`checkout_token_hash`,`recipient_name`,`recipient_phone`,`delivery_address_line_1`,`delivery_address_line_2`,`landmark`,`city`,`state`,`postal_code`,`country`,`subtotal`,`shipping_fee`,`discount_amount`,`total_amount`,`currency`,`payment_status`,`order_status`,`shipping_provider`,`shipping_id`,`tracking_url`,`customer_notes`,`internal_notes`,`paid_at`,`confirmed_at`,`shipped_at`,`delivered_at`,`created_at`,`updated_at`) values 
-(1,'SWD-20261022-HTXKXE','cow-ghee-500g','Rahul Sharma','rahul@example.com','69615a54d3a28f068b48b8a3f982ea327f1bf6543e35bc1a2979fd86d3383939','Rahul Sharma','9876543210','House 123, Model Town','Near Main Market','Near Main Market','Jalandhar','Punjab','144003','IN',1650.00,0.00,0.00,1650.00,'INR','pending','pending_payment',NULL,NULL,NULL,'Please call before delivery',NULL,NULL,NULL,NULL,NULL,'2026-10-22 10:26:48','2026-10-22 10:26:48');
+insert  into `orders`(`id`,`order_number`,`idempotency_key`,`user_id`,`customer_name`,`customer_email`,`checkout_token_hash`,`recipient_name`,`recipient_phone`,`delivery_address_line_1`,`delivery_address_line_2`,`landmark`,`city`,`state`,`postal_code`,`country`,`subtotal`,`shipping_fee`,`discount_amount`,`total_amount`,`currency`,`payment_status`,`order_status`,`shipping_provider`,`shipping_id`,`tracking_url`,`customer_notes`,`internal_notes`,`paid_at`,`confirmed_at`,`shipped_at`,`delivered_at`,`created_at`,`updated_at`,`confirmed_email_sent_at`,`shipped_email_sent_at`,`delivered_email_sent_at`,`coupon_code`) values 
+(5,'SWD-20261023-BYOYLP','swaad-test-checkout-002',NULL,'Avinash Test','avinash.test@example.com','f2dbf2890ec5561f1085e7422851dc945e20af60746a81efc8019f403dd71c2f','Avinash Test','9876543210','House No. 25, Model Town','Near Main Market','Near City Park','Jalandhar','Punjab','144001','IN',1450.00,0.00,0.00,1450.00,'INR','paid','returned','test','12121212121212','https://swaadtasteofpunjab.com/','Please call before delivery.',NULL,'2026-10-23 05:25:53','2026-10-23 05:25:53','2026-10-23 09:18:47','2026-10-23 09:18:55','2026-10-23 05:22:27','2026-10-23 09:19:04',NULL,NULL,NULL,NULL),
+(6,'SWD-20261023-SKBI5B','swaad-test-checkout-005',NULL,'Shobit Test','shobit.test@example.com','bf32fb19cadc6007e7d5091bd710d2aa68ea2c3b92c6d6581367a155cf478ef0','Shobit Test','9876543210','House No. 25, Model Town','Near Main Market','Near City Park','Jalandhar','Punjab','144001','IN',1450.00,0.00,0.00,1450.00,'INR','paid','delivered','asa','asas','https://swaadtasteofpunjab.com/','Please call before delivery.','aaa','2026-10-23 06:35:38','2026-10-23 06:35:38','2026-10-23 06:49:48','2026-10-23 06:49:56','2026-10-23 06:34:20','2026-10-23 06:49:56',NULL,NULL,NULL,NULL),
+(7,'SWD-20261029-HSXQVH','test-nijjarr200-001',NULL,'Test Customer','customer@example.com','8d725e220f425dabdfc1e14687d7535ce16717fad9f3d8c7748de3d051e9a68f','Test Customer','9876543210','1 Test Street',NULL,NULL,'Jalandhar','Punjab','144001','IN',700.00,0.00,200.00,500.00,'INR','pending','pending_payment',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-10-29 03:46:57','2026-10-29 03:46:57',NULL,NULL,NULL,'NIJJARR200');
 
 /*Table structure for table `password_reset_tokens` */
 
@@ -262,18 +276,23 @@ CREATE TABLE `payments` (
   `failure_reason` varchar(500) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `razorpay_payment_link_id` varchar(255) DEFAULT NULL,
+  `payment_link_url` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `payments_razorpay_order_id_unique` (`razorpay_order_id`),
   UNIQUE KEY `payments_razorpay_payment_id_unique` (`razorpay_payment_id`),
+  UNIQUE KEY `payments_razorpay_payment_link_id_unique` (`razorpay_payment_link_id`),
   KEY `payments_order_id_foreign` (`order_id`),
   KEY `payments_status_index` (`status`),
   CONSTRAINT `payments_order_id_foreign` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*Data for the table `payments` */
 
-insert  into `payments`(`id`,`order_id`,`provider`,`razorpay_order_id`,`razorpay_payment_id`,`amount`,`currency`,`status`,`signature_verified_at`,`paid_at`,`failure_reason`,`created_at`,`updated_at`) values 
-(1,1,'razorpay','order_Tqv8VTaawNrxac',NULL,1650.00,'INR','created',NULL,NULL,NULL,'2026-10-22 10:26:50','2026-10-22 10:26:50');
+insert  into `payments`(`id`,`order_id`,`provider`,`razorpay_order_id`,`razorpay_payment_id`,`amount`,`currency`,`status`,`signature_verified_at`,`paid_at`,`failure_reason`,`created_at`,`updated_at`,`razorpay_payment_link_id`,`payment_link_url`) values 
+(5,5,'razorpay',NULL,'pay_TrEXD0FsruT1Yt',1450.00,'INR','paid','2026-10-23 05:25:53','2026-10-23 05:25:53',NULL,'2026-10-23 05:22:27','2026-10-23 05:25:53','plink_TrEU7WhzD2OT2d','https://rzp.io/rzp/Rk2qqkw'),
+(6,6,'razorpay',NULL,'pay_TrFiussQkKOB59',1450.00,'INR','paid','2026-10-23 06:35:38','2026-10-23 06:35:38',NULL,'2026-10-23 06:34:20','2026-10-23 06:35:38','plink_TrFi42E3xFKFYM','https://rzp.io/rzp/u5uBwgE'),
+(7,7,'razorpay',NULL,NULL,500.00,'INR','failed',NULL,NULL,'Razorpay rejected Payment Link creation.','2026-10-29 03:46:57','2026-10-29 03:46:58',NULL,NULL);
 
 /*Table structure for table `personal_access_tokens` */
 
@@ -298,6 +317,22 @@ CREATE TABLE `personal_access_tokens` (
 
 /*Data for the table `personal_access_tokens` */
 
+/*Table structure for table `razorpay_webhook_events` */
+
+DROP TABLE IF EXISTS `razorpay_webhook_events`;
+
+CREATE TABLE `razorpay_webhook_events` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `event_id` varchar(255) NOT NULL,
+  `event_type` varchar(100) NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `razorpay_webhook_events_event_id_unique` (`event_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*Data for the table `razorpay_webhook_events` */
+
 /*Table structure for table `sessions` */
 
 DROP TABLE IF EXISTS `sessions`;
@@ -317,9 +352,10 @@ CREATE TABLE `sessions` (
 /*Data for the table `sessions` */
 
 insert  into `sessions`(`id`,`user_id`,`ip_address`,`user_agent`,`payload`,`last_activity`) values 
-('qmtYC5M1tj3TCFDLQdXV9UmZfoBsbCPNEYMkeGVl',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoidVo4VlhNSWhNYkVZTEtCNzdKenVFSGtaQXZSUkRhcTVVV1FGSEVRTyI7czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzQ6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMiO3M6NToicm91dGUiO3M6MTg6ImFkbWluLm9yZGVycy5pbmRleCI7fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjE7czoxNzoicGFzc3dvcmRfaGFzaF93ZWIiO3M6NjQ6IjA4YjZmMTFjOGFkMzMzMWQ1MDUwMzhlM2E1MzUxMmY1YjQ3NDI1NTFlZDM2YzQ0ODRhYTQ1MjllODNjN2MxYmUiO30=',1792650836),
-('SH5qjFYYXcJYnXmpwRMFL9prZWWLxHbLz0oCnAxH',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoiZng2dXRkOERhR1ROODJ6anBWQ1FRN3lhZXJBUlViWW1XazZCWUpVQiI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzY6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMvMSI7czo1OiJyb3V0ZSI7czoxNzoiYWRtaW4ub3JkZXJzLnNob3ciO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aToxO3M6MTc6InBhc3N3b3JkX2hhc2hfd2ViIjtzOjY0OiIwOGI2ZjExYzhhZDMzMzFkNTA1MDM4ZTNhNTM1MTJmNWI0NzQyNTUxZWQzNmM0NDg0YWE0NTI5ZTgzYzdjMWJlIjt9',1792666725),
-('vp7X2cUF8i3aOnGOCxwfwmtFMekRfIheiaejrezg',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoiTjhYdGRjTUIwZXJXNXJDdExiVFZ6M0Z1ZFl5Q0hubFdDd2dLb3oycyI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6Mjc6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbiI7czo1OiJyb3V0ZSI7czoxNToiYWRtaW4uZGFzaGJvYXJkIjt9czo2OiJfZmxhc2giO2E6Mjp7czozOiJvbGQiO2E6MDp7fXM6MzoibmV3IjthOjA6e319czo1MDoibG9naW5fd2ViXzU5YmEzNmFkZGMyYjJmOTQwMTU4MGYwMTRjN2Y1OGVhNGUzMDk4OWQiO2k6MTtzOjE3OiJwYXNzd29yZF9oYXNoX3dlYiI7czo2NDoiMDhiNmYxMWM4YWQzMzMxZDUwNTAzOGUzYTUzNTEyZjViNDc0MjU1MWVkMzZjNDQ4NGFhNDUyOWU4M2M3YzFiZSI7fQ==',1792663279);
+('QuvPQFbfz3zCYhAsnr6cWJENRYrdrPdE7NOVHvru',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoiRHZERldsNWRidjlicTVRVk9yVXdCM0p0MzlVd3ljbzAzdjFKcFlPVSI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzY6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMvNiI7czo1OiJyb3V0ZSI7czoxNzoiYWRtaW4ub3JkZXJzLnNob3ciO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aToxO3M6MTc6InBhc3N3b3JkX2hhc2hfd2ViIjtzOjY0OiIwOGI2ZjExYzhhZDMzMzFkNTA1MDM4ZTNhNTM1MTJmNWI0NzQyNTUxZWQzNmM0NDg0YWE0NTI5ZTgzYzdjMWJlIjt9',1792738204),
+('rVTTIH3lu1v0yduoW6lh7aK8nVhT7oDCh37yJwlM',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoidzhIMEx2M2cweVdQQTJKT1lwMjkyaURJVGlpbzBwYVVlbU1wdzJvRCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDQ6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMvNi9pbnZvaWNlIjtzOjU6InJvdXRlIjtzOjIwOiJhZG1pbi5vcmRlcnMuaW52b2ljZSI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjE7czoxNzoicGFzc3dvcmRfaGFzaF93ZWIiO3M6NjQ6IjA4YjZmMTFjOGFkMzMzMWQ1MDUwMzhlM2E1MzUxMmY1YjQ3NDI1NTFlZDM2YzQ0ODRhYTQ1MjllODNjN2MxYmUiO30=',1793245234),
+('SBjzOFGFOzMCF9IWLyt5FdzKMvRdMlUuDijdR62b',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoieTFkSlUzSHRURnFFSDl6RTNrdVhSMnhLcldXRjVlYTl1ZlgyMUJLbCI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6NDQ6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMvNi9pbnZvaWNlIjtzOjU6InJvdXRlIjtzOjIwOiJhZG1pbi5vcmRlcnMuaW52b2ljZSI7fXM6NjoiX2ZsYXNoIjthOjI6e3M6Mzoib2xkIjthOjA6e31zOjM6Im5ldyI7YTowOnt9fXM6NTA6ImxvZ2luX3dlYl81OWJhMzZhZGRjMmIyZjk0MDE1ODBmMDE0YzdmNThlYTRlMzA5ODlkIjtpOjE7czoxNzoicGFzc3dvcmRfaGFzaF93ZWIiO3M6NjQ6IjA4YjZmMTFjOGFkMzMzMWQ1MDUwMzhlM2E1MzUxMmY1YjQ3NDI1NTFlZDM2YzQ0ODRhYTQ1MjllODNjN2MxYmUiO30=',1793181708),
+('uL7iUvhzKnkbIRcx3njEpfssvEd8wR3Y0Am5i9xO',1,'127.0.0.1','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36','YTo1OntzOjY6Il90b2tlbiI7czo0MDoiT2J4blp5NXplSmZYUXpKMk40blVKMDExR2h2bFhWT3ZUMWtCTUpDMyI7czo5OiJfcHJldmlvdXMiO2E6Mjp7czozOiJ1cmwiO3M6MzY6Imh0dHA6Ly8xMjcuMC4wLjE6ODAwMC9hZG1pbi9vcmRlcnMvNSI7czo1OiJyb3V0ZSI7czoxNzoiYWRtaW4ub3JkZXJzLnNob3ciO31zOjY6Il9mbGFzaCI7YToyOntzOjM6Im9sZCI7YTowOnt9czozOiJuZXciO2E6MDp7fX1zOjUwOiJsb2dpbl93ZWJfNTliYTM2YWRkYzJiMmY5NDAxNTgwZjAxNGM3ZjU4ZWE0ZTMwOTg5ZCI7aToxO3M6MTc6InBhc3N3b3JkX2hhc2hfd2ViIjtzOjY0OiIwOGI2ZjExYzhhZDMzMzFkNTA1MDM4ZTNhNTM1MTJmNWI0NzQyNTUxZWQzNmM0NDg0YWE0NTI5ZTgzYzdjMWJlIjt9',1792747152);
 
 /*Table structure for table `users` */
 
@@ -332,10 +368,10 @@ CREATE TABLE `users` (
   `email_verified_at` timestamp NULL DEFAULT NULL,
   `password` varchar(255) DEFAULT NULL,
   `remember_token` varchar(100) DEFAULT NULL,
-  `phone` varchar(20) DEFAULT NULL,
-  `is_admin` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
+  `phone` varchar(20) DEFAULT NULL,
+  `is_admin` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   KEY `users_phone_index` (`phone`),
@@ -344,8 +380,8 @@ CREATE TABLE `users` (
 
 /*Data for the table `users` */
 
-insert  into `users`(`id`,`name`,`email`,`email_verified_at`,`password`,`remember_token`,`phone`,`is_admin`,`created_at`,`updated_at`) values 
-(1,'Avinash','avinash@gmail.com',NULL,'$2y$12$T9H0KZpkrNsY0d8SV4ovM.8IAaebAZq52HIRMLahERobFWJj9kfSm',NULL,NULL,1,'2026-10-22 11:09:03','2026-10-22 05:43:05');
+insert  into `users`(`id`,`name`,`email`,`email_verified_at`,`password`,`remember_token`,`created_at`,`updated_at`,`phone`,`is_admin`) values 
+(1,'admin','admin@gmail.com',NULL,'$2y$12$T9H0KZpkrNsY0d8SV4ovM.8IAaebAZq52HIRMLahERobFWJj9kfSm',NULL,'2026-10-23 12:15:20','2026-10-23 12:15:17',NULL,1);
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
 /*!40014 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS */;
